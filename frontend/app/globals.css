@@ -1,0 +1,470 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* ─── Dark-mode variant ───────────────────────────────────────────────── */
+@custom-variant dark (&:is(.dark *));
+
+/* ─── DrowsyShield — Design Tokens ──────────────────────────────────────
+   Three-Color Palette Rule: Charcoal (base) · Emerald (primary) · Coral (accent)
+   All colors in oklch for perceptual uniformity.
+   shadcn semantic tokens are mapped to our brand palette below.
+──────────────────────────────────────────────────────────────────────── */
+
+/* ── Light mode ─────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --background:               oklch(0.96 0 0);
+  --foreground:               oklch(0.12 0 0);
+  --card:                     oklch(1 0 0);
+  --card-foreground:          oklch(0.12 0 0);
+  --popover:                  oklch(1 0 0);
+  --popover-foreground:       oklch(0.12 0 0);
+
+  /* Primary → Emerald */
+  --primary:                  oklch(0.71 0.17 162);
+  --primary-foreground:       oklch(0.98 0 0);
+
+  /* Secondary → Charcoal mid-tone */
+  --secondary:                oklch(0.92 0 0);
+  --secondary-foreground:     oklch(0.20 0 0);
+
+  /* Muted */
+  --muted:                    oklch(0.93 0 0);
+  --muted-foreground:         oklch(0.52 0 0);
+
+  /* Accent → Coral */
+  --accent:                   oklch(0.72 0.19 40);
+  --accent-foreground:        oklch(0.98 0 0);
+
+  /* Destructive → Reserved for Level 3 alert only */
+  --destructive:              oklch(0.62 0.22 29);
+
+  /* Borders / inputs */
+  --border:                   oklch(0.88 0 0);
+  --input:                    oklch(0.88 0 0);
+  --ring:                     oklch(0.71 0.17 162);
+
+  /* Radius scale */
+  --radius:                   0.625rem;
+
+  /* Chart palette — maps to alert levels */
+  --chart-1:                  oklch(0.71 0.17 162);   /* emerald — safe */
+  --chart-2:                  oklch(0.73 0.17 72);    /* amber — mild */
+  --chart-3:                  oklch(0.72 0.19 40);    /* coral — warning */
+  --chart-4:                  oklch(0.62 0.22 29);    /* red — critical */
+  --chart-5:                  oklch(0.60 0.12 255);   /* blue — neutral data */
+
+  /* Sidebar */
+  --sidebar:                  oklch(0.97 0 0);
+  --sidebar-foreground:       oklch(0.20 0 0);
+  --sidebar-primary:          oklch(0.71 0.17 162);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent:           oklch(0.72 0.19 40);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border:           oklch(0.88 0 0);
+  --sidebar-ring:             oklch(0.71 0.17 162);
+
+  /* ── Brand tokens (our own, non-shadcn) ─────────────────────────────── */
+
+  /* Base scale */
+  --ds-base:          #1C1C1E;
+  --ds-base-soft:     #242426;
+  --ds-base-raised:   #2C2C2E;
+  --ds-base-border:   #3A3A3C;
+
+  /* Emerald scale */
+  --ds-emerald:       #10B981;
+  --ds-emerald-dim:   #059669;
+  --ds-emerald-glow:  #10B98120;
+  --ds-emerald-text:  #6EE7B7;
+
+  /* Coral scale */
+  --ds-coral:         #F97316;
+  --ds-coral-dim:     #EA580C;
+  --ds-coral-glow:    #F9731620;
+  --ds-coral-text:    #FED7AA;
+
+  /* Drowsiness alert levels */
+  --ds-alert-0:   #10B981;   /* safe — emerald */
+  --ds-alert-1:   #F59E0B;   /* mild — amber */
+  --ds-alert-2:   #F97316;   /* warning — coral */
+  --ds-alert-3:   #EF4444;   /* critical — red */
+
+  /* Fonts */
+  --font-display:   'Syne', system-ui, sans-serif;
+  --font-body:      'Space Grotesk', system-ui, sans-serif;
+  --font-mono:      'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Dark mode ──────────────────────────────────────────────────────── */
+.dark {
+  /* Surfaces */
+  --background:               oklch(0.14 0 0);
+  --foreground:               oklch(0.96 0 0);
+  --card:                     oklch(0.17 0 0);
+  --card-foreground:          oklch(0.96 0 0);
+  --popover:                  oklch(0.18 0 0);
+  --popover-foreground:       oklch(0.96 0 0);
+
+  /* Primary → Emerald (same in dark) */
+  --primary:                  oklch(0.71 0.17 162);
+  --primary-foreground:       oklch(0.98 0 0);
+
+  /* Secondary */
+  --secondary:                oklch(0.22 0 0);
+  --secondary-foreground:     oklch(0.96 0 0);
+
+  /* Muted */
+  --muted:                    oklch(0.22 0 0);
+  --muted-foreground:         oklch(0.60 0 0);
+
+  /* Accent → Coral (same in dark) */
+  --accent:                   oklch(0.72 0.19 40);
+  --accent-foreground:        oklch(0.98 0 0);
+
+  /* Destructive */
+  --destructive:              oklch(0.62 0.22 29);
+
+  /* Borders / inputs */
+  --border:                   oklch(1 0 0 / 10%);
+  --input:                    oklch(1 0 0 / 12%);
+  --ring:                     oklch(0.71 0.17 162);
+
+  /* Charts — same as light (alert level mapping) */
+  --chart-1:                  oklch(0.71 0.17 162);
+  --chart-2:                  oklch(0.73 0.17 72);
+  --chart-3:                  oklch(0.72 0.19 40);
+  --chart-4:                  oklch(0.62 0.22 29);
+  --chart-5:                  oklch(0.60 0.12 255);
+
+  /* Sidebar */
+  --sidebar:                  oklch(0.17 0 0);
+  --sidebar-foreground:       oklch(0.96 0 0);
+  --sidebar-primary:          oklch(0.71 0.17 162);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent:           oklch(0.72 0.19 40);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border:           oklch(1 0 0 / 10%);
+  --sidebar-ring:             oklch(0.71 0.17 162);
+}
+
+/* ─── Tailwind theme registration ────────────────────────────────────── */
+@theme inline {
+  /* shadcn semantic tokens */
+  --color-background:                 var(--background);
+  --color-foreground:                 var(--foreground);
+  --color-card:                       var(--card);
+  --color-card-foreground:            var(--card-foreground);
+  --color-popover:                    var(--popover);
+  --color-popover-foreground:         var(--popover-foreground);
+  --color-primary:                    var(--primary);
+  --color-primary-foreground:         var(--primary-foreground);
+  --color-secondary:                  var(--secondary);
+  --color-secondary-foreground:       var(--secondary-foreground);
+  --color-muted:                      var(--muted);
+  --color-muted-foreground:           var(--muted-foreground);
+  --color-accent:                     var(--accent);
+  --color-accent-foreground:          var(--accent-foreground);
+  --color-destructive:                var(--destructive);
+  --color-border:                     var(--border);
+  --color-input:                      var(--input);
+  --color-ring:                       var(--ring);
+  --color-chart-1:                    var(--chart-1);
+  --color-chart-2:                    var(--chart-2);
+  --color-chart-3:                    var(--chart-3);
+  --color-chart-4:                    var(--chart-4);
+  --color-chart-5:                    var(--chart-5);
+  --color-sidebar:                    var(--sidebar);
+  --color-sidebar-foreground:         var(--sidebar-foreground);
+  --color-sidebar-primary:            var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent:             var(--sidebar-accent);
+  --color-sidebar-accent-foreground:  var(--sidebar-accent-foreground);
+  --color-sidebar-border:             var(--sidebar-border);
+  --color-sidebar-ring:               var(--sidebar-ring);
+
+  /* ── Brand color scale tokens (use as bg-ds-emerald, text-ds-coral, etc.) */
+  --color-ds-base:          var(--ds-base);
+  --color-ds-base-soft:     var(--ds-base-soft);
+  --color-ds-base-raised:   var(--ds-base-raised);
+  --color-ds-base-border:   var(--ds-base-border);
+
+  --color-ds-emerald:       var(--ds-emerald);
+  --color-ds-emerald-dim:   var(--ds-emerald-dim);
+  --color-ds-emerald-glow:  var(--ds-emerald-glow);
+  --color-ds-emerald-text:  var(--ds-emerald-text);
+
+  --color-ds-coral:         var(--ds-coral);
+  --color-ds-coral-dim:     var(--ds-coral-dim);
+  --color-ds-coral-glow:    var(--ds-coral-glow);
+  --color-ds-coral-text:    var(--ds-coral-text);
+
+  --color-ds-alert-0:       var(--ds-alert-0);
+  --color-ds-alert-1:       var(--ds-alert-1);
+  --color-ds-alert-2:       var(--ds-alert-2);
+  --color-ds-alert-3:       var(--ds-alert-3);
+
+  /* Radius */
+  --radius-sm:    calc(var(--radius) * 0.6);
+  --radius-md:    calc(var(--radius) * 0.8);
+  --radius-lg:    var(--radius);
+  --radius-xl:    calc(var(--radius) * 1.4);
+  --radius-2xl:   calc(var(--radius) * 1.8);
+  --radius-3xl:   calc(var(--radius) * 2.2);
+  --radius-4xl:   calc(var(--radius) * 2.6);
+
+  /* Fonts */
+  --font-display: var(--font-display);
+  --font-sans:    var(--font-body);
+  --font-mono:    var(--font-mono);
+}
+
+/* ─── Base layer ─────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+
+  html {
+    @apply font-sans antialiased;
+    scroll-behavior: auto; /* Lenis handles smooth scroll */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-screen;
+  }
+
+  /* Headings use display font (Syne) */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+
+  /* Metrics / live scores use mono font */
+  .font-metric {
+    font-family: var(--font-mono);
+  }
+}
+
+/* ─── Typography scale ───────────────────────────────────────────────── */
+@layer utilities {
+  .text-display {
+    font-family: var(--font-display);
+    font-size: clamp(3rem, 7vw, 5rem);
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -0.03em;
+  }
+
+  .text-h1 {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .text-h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+
+  .text-h3 {
+    font-family: var(--font-body);
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .text-body-lg {
+    font-family: var(--font-body);
+    font-size: 1.125rem;
+    font-weight: 400;
+    line-height: 1.7;
+  }
+
+  .text-body {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+
+  .text-caption {
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+
+  .text-metric {
+    font-family: var(--font-mono);
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  .text-metric-sm {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1;
+  }
+
+  .text-code {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+}
+
+/* ─── Glow utilities ─────────────────────────────────────────────────── */
+@layer utilities {
+  .glow-emerald {
+    box-shadow: 0 0 20px var(--ds-emerald-glow), 0 0 40px var(--ds-emerald-glow);
+  }
+
+  .glow-coral {
+    box-shadow: 0 0 20px var(--ds-coral-glow), 0 0 40px var(--ds-coral-glow);
+  }
+
+  .glow-emerald-text {
+    text-shadow: 0 0 20px var(--ds-emerald-glow);
+  }
+
+  .glow-coral-text {
+    text-shadow: 0 0 20px var(--ds-coral-glow);
+  }
+}
+
+/* ─── Alert level utilities ──────────────────────────────────────────── */
+@layer utilities {
+  .alert-level-0 { color: var(--ds-alert-0); }
+  .alert-level-1 { color: var(--ds-alert-1); }
+  .alert-level-2 { color: var(--ds-alert-2); }
+  .alert-level-3 { color: var(--ds-alert-3); }
+
+  .alert-bg-0 { background-color: color-mix(in oklch, var(--ds-alert-0) 15%, transparent); }
+  .alert-bg-1 { background-color: color-mix(in oklch, var(--ds-alert-1) 15%, transparent); }
+  .alert-bg-2 { background-color: color-mix(in oklch, var(--ds-alert-2) 15%, transparent); }
+  .alert-bg-3 { background-color: color-mix(in oklch, var(--ds-alert-3) 15%, transparent); }
+
+  .alert-border-0 { border-color: color-mix(in oklch, var(--ds-alert-0) 40%, transparent); }
+  .alert-border-1 { border-color: color-mix(in oklch, var(--ds-alert-1) 40%, transparent); }
+  .alert-border-2 { border-color: color-mix(in oklch, var(--ds-alert-2) 40%, transparent); }
+  .alert-border-3 { border-color: color-mix(in oklch, var(--ds-alert-3) 40%, transparent); }
+}
+
+/* ─── Risk band utilities ────────────────────────────────────────────── */
+@layer utilities {
+  .band-a { color: var(--ds-emerald);  }
+  .band-b { color: oklch(0.82 0.14 162); }
+  .band-c { color: var(--ds-alert-1);  }
+  .band-d { color: var(--ds-coral);    }
+  .band-f { color: var(--ds-alert-3);  }
+
+  .band-bg-a { background-color: color-mix(in oklch, var(--ds-emerald) 15%, transparent); }
+  .band-bg-b { background-color: color-mix(in oklch, oklch(0.82 0.14 162) 15%, transparent); }
+  .band-bg-c { background-color: color-mix(in oklch, var(--ds-alert-1) 15%, transparent); }
+  .band-bg-d { background-color: color-mix(in oklch, var(--ds-coral) 15%, transparent); }
+  .band-bg-f { background-color: color-mix(in oklch, var(--ds-alert-3) 15%, transparent); }
+}
+
+/* ─── Gradient utilities ─────────────────────────────────────────────── */
+@layer utilities {
+  .gradient-emerald {
+    background: linear-gradient(135deg, var(--ds-emerald) 0%, var(--ds-emerald-dim) 100%);
+  }
+
+  .gradient-coral {
+    background: linear-gradient(135deg, var(--ds-coral) 0%, var(--ds-coral-dim) 100%);
+  }
+
+  .gradient-brand {
+    background: linear-gradient(135deg, var(--ds-emerald) 0%, var(--ds-coral) 100%);
+  }
+
+  .gradient-brand-text {
+    background: linear-gradient(135deg, var(--ds-emerald) 0%, var(--ds-coral) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gradient-surface {
+    background: linear-gradient(
+      180deg,
+      var(--ds-base-soft) 0%,
+      var(--ds-base) 100%
+    );
+  }
+}
+
+/* ─── Glass morphism ─────────────────────────────────────────────────── */
+@layer utilities {
+  .glass {
+    background: oklch(from var(--background) l c h / 0.6);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    border: 1px solid var(--border);
+  }
+
+  .glass-emerald {
+    background: color-mix(in oklch, var(--ds-emerald) 8%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in oklch, var(--ds-emerald) 25%, transparent);
+  }
+
+  .glass-coral {
+    background: color-mix(in oklch, var(--ds-coral) 8%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid color-mix(in oklch, var(--ds-coral) 25%, transparent);
+  }
+}
+
+/* ─── Animation: reduced motion ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Scrollbar styling ──────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ds-base-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.45 0 0);
+}
+
+/* ─── Selection color ────────────────────────────────────────────────── */
+::selection {
+  background-color: color-mix(in oklch, var(--ds-emerald) 30%, transparent);
+  color: inherit;
+}
+
+/* ─── Focus visible override ─────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--ds-emerald);
+  outline-offset: 2px;
+}

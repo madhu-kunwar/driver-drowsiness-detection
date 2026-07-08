@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background with rounded corners -->
+  <rect width="512" height="512" rx="112" fill="#1C1C1E"/>
+
+  <!-- Shield body -->
+  <path d="M256 72 L392 124 L392 268 Q392 376 256 444 Q120 376 120 268 L120 124 Z"
+        fill="none" stroke="#10B981" stroke-width="14" stroke-linejoin="round" opacity="0.25"/>
+
+  <!-- Shield fill gradient effect -->
+  <path d="M256 96 L372 140 L372 264 Q372 356 256 418 Q140 356 140 264 L140 140 Z"
+        fill="#10B981" opacity="0.08"/>
+
+  <!-- Eye outer ring -->
+  <ellipse cx="256" cy="255" rx="88" ry="54" fill="none" stroke="#10B981" stroke-width="9"/>
+
+  <!-- Eye inner (iris) -->
+  <circle cx="256" cy="255" r="30" fill="#10B981"/>
+
+  <!-- Pupil -->
+  <circle cx="256" cy="255" r="13" fill="#1C1C1E"/>
+
+  <!-- Eye shine -->
+  <circle cx="266" cy="246" r="7" fill="#ffffff" opacity="0.85"/>
+  <circle cx="274" cy="252" r="3" fill="#ffffff" opacity="0.4"/>
+
+  <!-- Side scan lines -->
+  <line x1="148" y1="255" x2="168" y2="255" stroke="#10B981" stroke-width="5" stroke-linecap="round"/>
+  <line x1="344" y1="255" x2="364" y2="255" stroke="#10B981" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Upper eyelid arc -->
+  <path d="M168 255 Q256 198 344 255" fill="none" stroke="#10B981" stroke-width="4" opacity="0.4"/>
+
+  <!-- Lower eyelid arc -->
+  <path d="M168 255 Q256 312 344 255" fill="none" stroke="#10B981" stroke-width="4" opacity="0.4"/>
+
+  <!-- Shield accent line (top) -->
+  <path d="M256 96 L372 140" stroke="#10B981" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+  <path d="M256 96 L140 140" stroke="#10B981" stroke-width="5" stroke-linecap="round" opacity="0.5"/>
+</svg>
