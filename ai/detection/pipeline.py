@@ -43,9 +43,13 @@ _mp_face_mesh   = mp.solutions.face_mesh
 _mp_face_detect = mp.solutions.face_detection
 _mp_pose        = mp.solutions.pose
 
+# Detect up to 2 faces so a passenger can't silently steal tracking; we then
+# lock onto the LARGEST face (the driver, closest to the camera). When only one
+# face is present this costs the same as max_num_faces=1 — the mesh only runs
+# per detected face.
 _face_mesh = _mp_face_mesh.FaceMesh(
     static_image_mode=False,
-    max_num_faces=1,
+    max_num_faces=2,
     refine_landmarks=True,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
@@ -178,6 +182,17 @@ def _score_to_level(score: float) -> int:
     return 3
 
 
+def _largest_face(multi_face_landmarks):
+    """Pick the face with the biggest landmark bounding box (closest to camera =
+    the driver). Guarantees face tracking stays locked to one person even if a
+    passenger appears in frame."""
+    def area(face):
+        xs = [p.x for p in face.landmark]
+        ys = [p.y for p in face.landmark]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys))
+    return max(multi_face_landmarks, key=area)
+
+
 def _extract_face_crop(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
     h, w = frame_bgr.shape[:2]
     rgb  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -245,7 +260,7 @@ class DetectionPipeline:
         if not fm.multi_face_landmarks:
             return self._no_face_result(ts, low_light)
 
-        lm = fm.multi_face_landmarks[0].landmark
+        lm = _largest_face(fm.multi_face_landmarks).landmark
 
         # ── Signals ──────────────────────────────────────────────
         ear   = compute_ear(lm)
@@ -355,7 +370,7 @@ class DetectionPipeline:
         fm = _face_mesh.process(rgb)
         if not fm.multi_face_landmarks:
             return
-        lm = fm.multi_face_landmarks[0].landmark
+        lm = _largest_face(fm.multi_face_landmarks).landmark
         ear = compute_ear(lm)
 
         pr = _pose_detector.process(rgb)

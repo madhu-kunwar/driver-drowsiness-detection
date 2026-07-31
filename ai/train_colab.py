@@ -30,7 +30,10 @@ def pip(*pkgs):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
 
 pip(
-    "mediapipe>=0.10.9",
+    # Pinned: mediapipe >= 0.10.15 (and 1.0.0) removed the legacy mp.solutions
+    # API this script relies on (face_mesh / pose / face_detection). 0.10.14 is
+    # the last version with it, and matches the runtime server (ai/requirements).
+    "mediapipe==0.10.14",
     "opencv-python-headless>=4.9.0",
     "numpy>=1.26.0",
     "scipy>=1.12.0",
@@ -297,13 +300,17 @@ RIGHT_EYE = [33,  160, 158, 133, 153, 144]
 OUTER_LIP = [78,  82,  87,  13, 312, 317, 402, 308]
 POSE_IDX  = [4, 152, 33, 263, 61, 291]
 
+# Y-down / Z-forward to match image pixel coords (a frontal face → ~(0,0,0)).
+# A Y-up model makes solvePnP return a 180°-flipped rotation, so pitch reads
+# ~178° for a straight head. Must match ai/detection/signals/head_pose.py so
+# trained features equal runtime features.
 MODEL_3D = np.array([
-    ( 0.0,    0.0,    0.0),
-    ( 0.0,  -63.6,  -12.5),
-    (-43.3,  32.7,  -26.0),
-    ( 43.3,  32.7,  -26.0),
-    (-28.9, -28.9,  -24.1),
-    ( 28.9, -28.9,  -24.1),
+    ( 0.0,   0.0,   0.0),
+    ( 0.0,  63.6,  12.5),
+    (-43.3, -32.7, 26.0),
+    ( 43.3, -32.7, 26.0),
+    (-28.9,  28.9, 24.1),
+    ( 28.9,  28.9, 24.1),
 ], dtype=np.float64)
 
 EAR_THRESHOLD = 0.21
@@ -320,8 +327,14 @@ def compute_ear(lm) -> float:
 
 
 def compute_mar(lm) -> float:
+    # Numerator terms MUST pair vertically aligned upper/lower lip points, not
+    # lip-to-corner diagonals (the old bug made a closed mouth read MAR ~0.88).
     p = [np.array([lm[i].x, lm[i].y]) for i in OUTER_LIP]
-    return (_d(p[1],p[7]) + _d(p[2],p[6]) + _d(p[3],p[5])) / (2.0 * _d(p[0],p[4]) + 1e-6)
+    return (_d(p[1],p[2]) + _d(p[4],p[5]) + _d(p[3],p[6])) / (2.0 * _d(p[0],p[7]) + 1e-6)
+
+
+def _unwrap(a: float) -> float:
+    return a - 180 if a > 90 else (a + 180 if a < -90 else a)
 
 
 def compute_head_pose(lm, w: int, h: int) -> Tuple[float, float, float]:
@@ -333,11 +346,14 @@ def compute_head_pose(lm, w: int, h: int) -> Tuple[float, float, float]:
         return 0.0, 0.0, 0.0
     rmat, _ = cv2.Rodrigues(rvec)
     angles, *_ = cv2.RQDecomp3x3(rmat)
-    return float(angles[0]), float(angles[1]), float(angles[2])
+    return _unwrap(angles[0]), _unwrap(angles[1]), _unwrap(angles[2])
 
 
 def norm_ear(ear: float) -> float:
-    return float(np.clip((EAR_THRESHOLD - ear) / (EAR_THRESHOLD + 1e-6), 0.0, 1.0))
+    # Shut eyes bottom out around EAR 0.10-0.15, never 0, so normalise between
+    # the threshold and a realistic closed level (55% of threshold) → 1.0 shut.
+    closed = EAR_THRESHOLD * 0.55
+    return float(np.clip((EAR_THRESHOLD - ear) / (EAR_THRESHOLD - closed + 1e-6), 0.0, 1.0))
 
 def norm_mar(mar: float) -> float:
     return float(np.clip((mar - 0.30) / 0.60, 0.0, 1.0))
@@ -387,7 +403,7 @@ def extract_frame_features(frame_bgr: np.ndarray) -> FrameFeatures:
         lean = np.linalg.norm(em - sm)
         tilt = np.arctan2(abs(pl[11].y-pl[12].y), abs(pl[11].x-pl[12].x)+1e-6)
         lean_dev = abs(lean - 0.30) / 0.15
-        tilt_dev = tilt / 0.35
+        tilt_dev = abs(tilt - 0.05) / 0.35   # deviate from baseline tilt, matching runtime
         feat.posture_score = float(min(1.0, lean_dev*0.6 + tilt_dev*0.4))
 
     return feat
@@ -411,7 +427,7 @@ ABLATION_CONFIGS = {
 class PerclosBuffer:
     def __init__(self, fps=10.0, window_s=60.0):
         self._buf = deque(maxlen=max(int(fps*window_s), 1))
-        self._thr = EAR_THRESHOLD * 0.20   # 80% closure threshold
+        self._thr = EAR_THRESHOLD          # eyes closed when EAR < threshold
 
     def update(self, ear: float) -> float:
         self._buf.append(1 if ear < self._thr else 0)
