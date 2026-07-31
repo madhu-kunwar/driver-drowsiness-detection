@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { Howler } from "howler";
 import { useDetectionStore } from "@/store/detectionStore";
 import type { DetectionMetrics, AlertLevel } from "@/types/detection";
@@ -103,21 +103,29 @@ function playAlertTone(level: AlertLevel) {
   } catch { /* AudioContext gated behind user gesture — silently skip */ }
 }
 
+/* ── Shared connection state ─────────────────────────────────────
+   Module-level, not per-hook-call: WebcamCapture and SessionControls
+   each call useDetection() independently, but there is only ever one
+   WebSocket connection for the whole tab. Keeping this in useRef would
+   silently give each caller its own (disconnected) socket — sendFrame
+   would always no-op against a ws that connect() never touched.
+──────────────────────────────────────────────────────────────── */
+let sharedWs: WebSocket | null = null;
+let sharedDemoInterval: ReturnType<typeof setInterval> | null = null;
+let sharedPrevLevel: AlertLevel = 0;
+
 /* ── Main hook ───────────────────────────────────────────────── */
 export function useDetection() {
-  const ws = useRef<WebSocket | null>(null);
-  const demoInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevLevel = useRef<AlertLevel>(0);
   const { setMetrics, setWsStatus, sessionActive, sessionStartMs, demoMode } =
     useDetectionStore();
 
   const sendFrame = useCallback(
     (canvas: HTMLCanvasElement) => {
-      if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+      if (!sharedWs || sharedWs.readyState !== WebSocket.OPEN) return;
       canvas.toBlob(
         (blob) => {
-          if (blob && ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(blob);
+          if (blob && sharedWs?.readyState === WebSocket.OPEN) {
+            sharedWs.send(blob);
           }
         },
         "image/jpeg",
@@ -134,23 +142,24 @@ export function useDetection() {
     }
     setWsStatus("connecting");
     try {
-      ws.current = new WebSocket(WS_URL);
-      ws.current.binaryType = "arraybuffer";
+      const socket = new WebSocket(WS_URL);
+      socket.binaryType = "arraybuffer";
+      sharedWs = socket;
 
-      ws.current.onopen = () => setWsStatus("connected");
-      ws.current.onerror = () => setWsStatus("error");
-      ws.current.onclose = () => setWsStatus("disconnected");
-      ws.current.onmessage = (e) => {
+      socket.onopen = () => setWsStatus("connected");
+      socket.onerror = () => setWsStatus("error");
+      socket.onclose = () => setWsStatus("disconnected");
+      socket.onmessage = (e) => {
         try {
           const data: DetectionMetrics = JSON.parse(
             typeof e.data === "string" ? e.data : new TextDecoder().decode(e.data)
           );
           setMetrics(data);
-          if (data.alertLevel > 0 && data.alertLevel !== prevLevel.current) {
+          if (data.alertLevel > 0 && data.alertLevel !== sharedPrevLevel) {
             playAlertTone(data.alertLevel);
             vibrateAlert(data.alertLevel);
           }
-          prevLevel.current = data.alertLevel;
+          sharedPrevLevel = data.alertLevel;
         } catch {}
       };
     } catch {
@@ -159,11 +168,11 @@ export function useDetection() {
   }, [demoMode, setMetrics, setWsStatus]);
 
   const disconnect = useCallback(() => {
-    ws.current?.close();
-    ws.current = null;
-    if (demoInterval.current) {
-      clearInterval(demoInterval.current);
-      demoInterval.current = null;
+    sharedWs?.close();
+    sharedWs = null;
+    if (sharedDemoInterval) {
+      clearInterval(sharedDemoInterval);
+      sharedDemoInterval = null;
     }
   }, []);
 
@@ -171,18 +180,18 @@ export function useDetection() {
   useEffect(() => {
     if (!sessionActive || !demoMode || !sessionStartMs) return;
 
-    demoInterval.current = setInterval(() => {
+    sharedDemoInterval = setInterval(() => {
       const m = generateDemoMetrics(sessionStartMs);
       setMetrics(m);
-      if (m.alertLevel > 0 && m.alertLevel !== prevLevel.current) {
+      if (m.alertLevel > 0 && m.alertLevel !== sharedPrevLevel) {
         playAlertTone(m.alertLevel);
         vibrateAlert(m.alertLevel);
       }
-      prevLevel.current = m.alertLevel;
+      sharedPrevLevel = m.alertLevel;
     }, 100); // 10fps demo to save CPU
 
     return () => {
-      if (demoInterval.current) clearInterval(demoInterval.current);
+      if (sharedDemoInterval) clearInterval(sharedDemoInterval);
     };
   }, [sessionActive, demoMode, sessionStartMs, setMetrics]);
 

@@ -32,7 +32,7 @@ def preprocess(frame_bgr: np.ndarray) -> tuple[np.ndarray, bool]:
     Returns (processed_bgr, low_light_flag).
     """
     frame_bgr = resize_frame(frame_bgr)
-    low_light = frame_bgr.mean() < 60
+    low_light = bool(frame_bgr.mean() < 60)
     if low_light:
         frame_bgr = apply_clahe(frame_bgr)
     return frame_bgr, low_light

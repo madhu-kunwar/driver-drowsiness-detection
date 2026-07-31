@@ -66,12 +66,16 @@ export const useDetectionStore = create<DetectionState>((set) => ({
       const newAlertCount = { ...state.alertCount };
       newAlertCount[m.alertLevel] = (newAlertCount[m.alertLevel] || 0) + 1;
 
+      // Count one yawn per event (rising edge), not once per frame — a single
+      // ~2s yawn spans ~60 frames and would otherwise inflate the count.
+      const yawnRisingEdge = m.yawnDetected && !state.metrics?.yawnDetected;
+
       return {
         metrics: m,
         timeline: newTimeline,
         events: newEvents,
         alertCount: newAlertCount,
-        yawnCount: m.yawnDetected ? state.yawnCount + 1 : state.yawnCount,
+        yawnCount: yawnRisingEdge ? state.yawnCount + 1 : state.yawnCount,
       };
     }),
 

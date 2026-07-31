@@ -4,10 +4,6 @@ import numpy as np
 LEFT_EYE  = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE = [33,  160, 158, 133, 153, 144]
 
-# PERCLOS: eye is "closed" when EAR < threshold * 0.20 (80% closure)
-_CLOSURE_RATIO = 0.80
-
-
 def _ear_single(lm, indices) -> float:
     p = [np.array([lm[i].x, lm[i].y]) for i in indices]
     A = np.linalg.norm(p[1] - p[5])
@@ -20,8 +16,18 @@ def compute_ear(landmarks) -> float:
     return (_ear_single(landmarks, LEFT_EYE) + _ear_single(landmarks, RIGHT_EYE)) / 2.0
 
 
+# EAR at full eye closure never reaches 0 with the 6-point formula — it bottoms
+# out around 0.10–0.15. Normalising against 0 (the old code) meant fully closed
+# eyes only scored ~0.4–0.5 on the strongest, highest-weighted drowsiness signal,
+# which structurally capped the composite score below the Level-3 threshold.
+# Map [closed_level → threshold] onto [1 → 0] so shut eyes score ≈ 1.0.
+_EAR_CLOSED_FRACTION = 0.55   # ear at/below 55% of threshold == fully closed
+
+
 def normalise_ear(ear: float, threshold: float) -> float:
-    return float(np.clip((threshold - ear) / (threshold + 1e-6), 0.0, 1.0))
+    closed_level = threshold * _EAR_CLOSED_FRACTION
+    span = threshold - closed_level
+    return float(np.clip((threshold - ear) / (span + 1e-6), 0.0, 1.0))
 
 
 class PerclosTracker:
@@ -32,8 +38,12 @@ class PerclosTracker:
         self.fps = fps
 
     def update(self, ear: float, threshold: float) -> float:
-        closed_thr = threshold * (1.0 - _CLOSURE_RATIO)
-        self._buf.append(1 if ear < closed_thr else 0)
+        # A frame counts as "eyes closed" when EAR falls below the calibrated
+        # threshold (0.75 × resting EAR). This is the same closure definition
+        # used by BlinkTracker. The previous code multiplied by 0.20 on top,
+        # demanding EAR < ~0.04 — a level real closed eyes never reach — so
+        # PERCLOS was stuck at 0% permanently.
+        self._buf.append(1 if ear < threshold else 0)
         if not self._buf:
             return 0.0
         return (sum(self._buf) / len(self._buf)) * 100.0

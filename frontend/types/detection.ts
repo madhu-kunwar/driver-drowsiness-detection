@@ -7,6 +7,13 @@ export const ALERT_META: Record<AlertLevel, { label: string; color: string; bgVa
   3: { label: "CRITICAL", color: "var(--ds-alert-3)", bgVar: "color-mix(in oklch, var(--ds-alert-3) 20%, transparent)", desc: "Pull over immediately" },
 };
 
+export interface FrameLandmarks {
+  leftEye: { x: number; y: number }[];
+  rightEye: { x: number; y: number }[];
+  mouth: { x: number; y: number }[];
+  posture: { shoulders: { x: number; y: number }[]; ears: { x: number; y: number }[] } | null;
+}
+
 export interface DetectionMetrics {
   ear: number;
   perclos: number;
@@ -21,6 +28,7 @@ export interface DetectionMetrics {
   yawnDetected: boolean;
   blinkRate: number;
   timestamp: string;
+  landmarks?: FrameLandmarks | null;
 }
 
 export interface TimelinePoint {

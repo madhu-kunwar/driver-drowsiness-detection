@@ -83,7 +83,16 @@ async def detection_ws(websocket: WebSocket):
             if "bytes" in data and data["bytes"]:
                 try:
                     result = await pipeline.process(data["bytes"])
-                    await websocket.send_text(json.dumps(result.to_dict()))
+                    d = result.to_dict()
+                    # TEMP DEBUG — remove after confirming signal fixes
+                    log.info(
+                        f"score={d['compositeScore']:.3f} L{d['alertLevel']} | "
+                        f"ear={d['ear']:.3f} perclos={d['perclos']:.1f}% "
+                        f"mar={d['mar']:.3f} yawn={d['yawnDetected']} "
+                        f"pose(p/y/r)={d['pitch']:.0f}/{d['yaw']:.0f}/{d['roll']:.0f} "
+                        f"posture={d['postureScore']:.3f}"
+                    )
+                    await websocket.send_text(json.dumps(d))
                 except ValueError as e:
                     # Bad frame — skip silently
                     log.debug(f"Frame decode error: {e}")

@@ -27,14 +27,16 @@ import numpy as np
 from .calibration import Calibration
 from .preprocessing import decode_jpeg, preprocess
 from .signals.ear import (
+    LEFT_EYE,
+    RIGHT_EYE,
     BlinkTracker,
     PerclosTracker,
     compute_ear,
     normalise_ear,
 )
 from .signals.head_pose import compute_head_pose, normalise_pose
-from .signals.mar import YawnDetector, compute_mar, normalise_mar
-from .signals.posture import compute_posture
+from .signals.mar import OUTER_LIP, YawnDetector, compute_mar, normalise_mar
+from .signals.posture import compute_posture, measure_posture, pose_reliable
 
 # ── MediaPipe singletons (shared across all sessions) ────────────────
 _mp_face_mesh   = mp.solutions.face_mesh
@@ -141,6 +143,8 @@ class DetectionResult:
     systemB:        int   = 0
     systemC:        int   = 0
     latencyMs:      float = 0.0
+    # Normalized (0-1) landmark points for frontend overlay drawing
+    landmarks:      Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -163,6 +167,7 @@ class DetectionResult:
             "systemB":        self.systemB,
             "systemC":        self.systemC,
             "latencyMs":      round(self.latencyMs, 1),
+            "landmarks":      self.landmarks,
         }
 
 
@@ -260,8 +265,21 @@ class DetectionPipeline:
         # ── Posture ───────────────────────────────────────────────
         pr = _pose_detector.process(rgb)
         posture_s = 0.0
-        if pr.pose_landmarks:
+        posture_landmarks = None
+        if pr.pose_landmarks and pose_reliable(pr.pose_landmarks):
             posture_s = compute_posture(pr.pose_landmarks, blen, btlt)
+            pl = pr.pose_landmarks.landmark
+            posture_landmarks = {
+                "shoulders": [{"x": pl[11].x, "y": pl[11].y}, {"x": pl[12].x, "y": pl[12].y}],
+                "ears":      [{"x": pl[7].x,  "y": pl[7].y},  {"x": pl[8].x,  "y": pl[8].y}],
+            }
+
+        landmarks = {
+            "leftEye":  [{"x": lm[i].x, "y": lm[i].y} for i in LEFT_EYE],
+            "rightEye": [{"x": lm[i].x, "y": lm[i].y} for i in RIGHT_EYE],
+            "mouth":    [{"x": lm[i].x, "y": lm[i].y} for i in OUTER_LIP],
+            "posture":  posture_landmarks,
+        }
 
         # ── System A — weighted fusion ────────────────────────────
         score_a = (
@@ -328,6 +346,7 @@ class DetectionPipeline:
             systemB        = level_b,
             systemC        = level_c,
             latencyMs      = latency,
+            landmarks      = landmarks,
         )
 
     # ── Calibration helpers ──────────────────────────────────────────
@@ -340,16 +359,13 @@ class DetectionPipeline:
         ear = compute_ear(lm)
 
         pr = _pose_detector.process(rgb)
-        lean = tilt = 0.0
-        if pr.pose_landmarks:
-            pl = pr.pose_landmarks.landmark
-            sm = np.array([(pl[11].x + pl[12].x) / 2, (pl[11].y + pl[12].y) / 2])
-            em = np.array([(pl[7].x  + pl[8].x)  / 2, (pl[7].y  + pl[8].y)  / 2])
-            lean = float(np.linalg.norm(em - sm))
-            tilt = float(np.arctan2(abs(pl[11].y - pl[12].y),
-                                    abs(pl[11].x - pl[12].x) + 1e-6))
-
-        self.calibration.add_frame(ear, lean, tilt)
+        if pr.pose_landmarks and pose_reliable(pr.pose_landmarks):
+            lean, tilt = measure_posture(pr.pose_landmarks)
+            self.calibration.add_frame(ear, lean, tilt)
+        else:
+            # Face calibrated even when the body isn't in frame; posture
+            # baseline simply isn't recorded from this frame.
+            self.calibration.add_frame(ear)
 
     # ── Hysteresis ────────────────────────────────────────────────────
 

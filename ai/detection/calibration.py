@@ -24,11 +24,20 @@ class Calibration:
         self.baseline_lean    = _DEFAULT_BASELINE_LEAN
         self.baseline_tilt    = _DEFAULT_BASELINE_TILT
 
-    def add_frame(self, ear: float, forward_lean: float, shoulder_tilt: float):
+    def add_frame(
+        self,
+        ear: float,
+        forward_lean: float | None = None,
+        shoulder_tilt: float | None = None,
+    ):
         if self.is_complete:
             return
         self._ear_readings.append(ear)
-        self._posture_readings.append((forward_lean, shoulder_tilt))
+        # Only record posture when the body was actually detected this frame.
+        # Injecting 0.0 on undetected frames dragged the baseline toward zero,
+        # which then made every live frame read as a large posture deviation.
+        if forward_lean is not None and shoulder_tilt is not None:
+            self._posture_readings.append((forward_lean, shoulder_tilt))
 
     def finalise(self):
         if len(self._ear_readings) < _MIN_FRAMES_FOR_CALIBRATE:
@@ -39,9 +48,11 @@ class Calibration:
         # Threshold = 75% of resting EAR
         self.ear_threshold = max(0.10, ear_mean * 0.75)
 
-        arr = np.array(self._posture_readings)
-        self.baseline_lean = float(arr[:, 0].mean())
-        self.baseline_tilt = float(arr[:, 1].mean())
+        if self._posture_readings:
+            arr = np.array(self._posture_readings)
+            self.baseline_lean = float(arr[:, 0].mean())
+            self.baseline_tilt = float(arr[:, 1].mean())
+        # else: no reliable pose during calibration — keep posture defaults
 
         self.is_complete = True
 
