@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Play, ArrowRight, Zap, AlertTriangle } from "lucide-react";
@@ -9,11 +8,9 @@ import { MagneticButton } from "@/components/shared/MagneticButton";
 /**
  * DemoPreviewSection
  * ──────────────────
- * Uses Shery.js imageEffect (style 5 — pixel distortion) on hover.
- * The monitor UI mockup is a static screenshot-quality replica.
- *
- * Shery.js is initialised client-side only (no SSR).
- * It requires a canvas overlay above the image — keep .shery-img class present.
+ * The monitor UI mockup is a CSS-only replica (no real <img>), so it does
+ * not use Shery.js imageEffect — that effect requires an actual image
+ * source to build its WebGL texture from.
  */
 
 /* ── Simulated monitor screen ── */
@@ -130,40 +127,6 @@ function MonitorMockup() {
 }
 
 export function DemoPreviewSection() {
-  const imgContainerRef = useRef<HTMLDivElement>(null);
-  const sheryInitialized = useRef(false);
-
-  /* ── Shery.js image distortion on hover ── */
-  useEffect(() => {
-    if (sheryInitialized.current) return;
-
-    import("sheryjs")
-      .then(({ default: Shery }) => {
-        if (!imgContainerRef.current) return;
-
-        // Image distortion on hover
-        Shery.imageEffect(".shery-img", {
-          style: 5,
-          config: {
-            uFrequencyX: { value: 10, range: [0, 100] },
-            uFrequencyY: { value: 10, range: [0, 100] },
-            uDensity:    { value: 1.5, range: [0, 5] },
-            uStrength:   { value: 0.4, range: [0, 2] },
-          },
-          gooey: true,
-          slideStyle: (set: (val: number) => void) => {
-            // Animate on mount for demo
-            set(5);
-          },
-        });
-
-        sheryInitialized.current = true;
-      })
-      .catch(() => {
-        // Shery.js failed to load (e.g., no WebGL) — no crash
-      });
-  }, []);
-
   const features = [
     { icon: Zap,           text: "Real-time · 30 fps · <85ms" },
     { icon: AlertTriangle, text: "4-level alert system with audio" },
@@ -235,17 +198,15 @@ export function DemoPreviewSection() {
             </p>
           </motion.div>
 
-          {/* Right — monitor mockup with Shery.js */}
+          {/* Right — monitor mockup */}
           <motion.div
-            ref={imgContainerRef}
             className="relative"
             initial={{ opacity: 0, x: 32 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: "-80px" }}
             transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] as [number, number, number, number], delay: 0.1 }}
           >
-            {/* Shery.js wraps this — keep class shery-img on the image wrapper */}
-            <div className="shery-img relative cursor-pointer">
+            <div className="relative cursor-pointer">
               <MonitorMockup />
             </div>
 
