@@ -42,21 +42,9 @@ export function WebcamCapture() {
       return;
     }
 
-    let tick = 0;
     frameLoop.current = setInterval(() => {
-      tick += 1;
       const video = webcamRef.current?.video;
       const canvas = canvasRef.current;
-
-      // TEMP DEBUG — remove after diagnosing missing frames, logs ~1x/sec
-      if (tick % 30 === 0) {
-        console.error("[frameLoop]", {
-          hasVideo: !!video,
-          readyState: video?.readyState,
-          videoWidth: video?.videoWidth,
-          hasCanvas: !!canvas,
-        });
-      }
 
       if (!video || !canvas || video.readyState < 2) return;
 
