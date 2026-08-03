@@ -142,7 +142,7 @@ export function WebcamCapture() {
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-caption font-medium text-white"
           style={{
             background:
-              wsStatus === "connected" ? "var(--ds-emerald)" :
+              wsStatus === "connected" ? "#3B82F6" :
               wsStatus === "demo"      ? "var(--ds-alert-1)" :
               wsStatus === "error"     ? "var(--ds-alert-3)" :
               "var(--ds-base-raised)",
