@@ -3,3 +3,8 @@
 venv/
 __pycache__/
 *.py[cod]
+
+# Datasets (uploaded to Google Drive for Colab training, not committed)
+dmd/
+dataset/
+*.tar.gz
