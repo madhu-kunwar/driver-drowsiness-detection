@@ -30,15 +30,28 @@ def pip(*pkgs):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
 
 pip(
-    # Pinned: mediapipe >= 0.10.15 (and 1.0.0) removed the legacy mp.solutions
-    # API this script relies on (face_mesh / pose / face_detection). 0.10.14 is
-    # the last version with it, and matches the runtime server (ai/requirements).
+    # ── Dependency compatibility notes (Colab, Python 3.12) ───────────────
+    # mediapipe 0.10.14 is the last version with the legacy mp.solutions API
+    # (face_mesh / pose / face_detection) this script uses. It requires
+    # protobuf 4.x. Colab's default TensorFlow 2.18 requires protobuf 5.26+,
+    # which conflicts (ImportError: cannot import name 'runtime_version').
+    # Fix: pin TensorFlow 2.17.x — it lives on protobuf 4.x, so mediapipe and
+    # TF agree. numpy is pinned <2 for mediapipe 0.10.14 compatibility.
+    # tf-keras + TF_USE_LEGACY_KERAS=1 (set in CELL 4) keep tf2onnx export
+    # working under the Keras 3 default.
+    "protobuf==4.25.8",
+    "tensorflow==2.17.1",
+    "tf-keras==2.17.0",
     "mediapipe==0.10.14",
+    "numpy>=1.26.0,<2.0",
     "opencv-python-headless>=4.9.0",
-    "numpy>=1.26.0",
     "scipy>=1.12.0",
     "scikit-learn>=1.4.0",
     "xgboost>=2.0.0",
+    # onnx 1.17+ references ml_dtypes.float4_e2m1fn (needs ml_dtypes>=0.5),
+    # but TF 2.17 pins ml_dtypes 0.4.x → AttributeError on `import tf2onnx`.
+    # Pin onnx to the last 0.4-compatible release.
+    "onnx==1.16.2",
     "onnxruntime>=1.17.0",
     "tf2onnx>=1.16.0",
     "matplotlib>=3.8.0",
@@ -48,6 +61,12 @@ pip(
 )
 
 print("All packages installed.")
+print("\n" + "!" * 64)
+print("!  IMPORTANT: this cell downgraded TensorFlow (2.18 → 2.17) and")
+print("!  protobuf. You MUST restart the runtime now for it to take effect:")
+print("!     Runtime → Restart session")
+print("!  Then run the script again — installs are cached, so it's fast.")
+print("!" * 64)
 
 
 # ============================================================
@@ -60,26 +79,28 @@ import os
 USE_SYNTHETIC = False
 
 # ── Root folder of DMD on your Google Drive ──────────────────
-# After unzipping the download, your Drive should look like:
-#   MyDrive/DrowsyShield/DMD/gA/s1/rgb_face/video.mp4
-#                              s1/ann/gA_s1_ann_distraction.json
-#                            s2/...
-#                        gB/s1/...
-DMD_ROOT = "/content/drive/MyDrive/DrowsyShield/DMD"
+# Your Drive must have the groups side by side under one folder, e.g.:
+#   MyDrive/drowsiness/dmd/gA/1/s1/gA_1_s1_<ts>_rgb_face.mp4
+#                         gA/1/s1/gA_1_s1_<ts>_rgb_ann_distraction.json
+#                         gB/6/s1/...
+#                         gC/13/s1/...
+# (consolidate the dmd / dmd 2 / dmd 3 folders into one `dmd` first)
+DMD_ROOT = "/content/drive/MyDrive/drowsiness/dmd"
 
 # ── Output folder (created automatically) ────────────────────
-OUTPUT_DIR = "/content/drive/MyDrive/DrowsyShield/models"
+OUTPUT_DIR = "/content/drive/MyDrive/drowsiness/models"
 
 # ── Camera stream to use — rgb_face is the face-view video ───
 # Options inside each subject folder: rgb_face / rgb_body / ir_face
 CAMERA_STREAM = "rgb_face"
 
 # ── Train / Val / Test split by group name ───────────────────
-# DMD has groups gA, gB, gC ... list which go where.
-# If you only have gA and gB, a common split is below.
-TRAIN_GROUPS = ["gA"]
-VAL_GROUPS   = ["gB"]
-TEST_GROUPS  = ["gC"]   # change to ["gB"] if you only have gA + gB
+# Split is SUBJECT-INDEPENDENT: no driver appears in more than one split.
+# Each group folder holds 2 subjects (dmd/gA/<s1>, dmd/gA/<s2>, …) and they're
+# all picked up automatically → 2 drivers per split, 6 total.
+TRAIN_GROUPS = ["gA"]   # 2 subjects
+VAL_GROUPS   = ["gB"]   # 2 subjects
+TEST_GROUPS  = ["gC"]   # 2 subjects
 
 # ── Subject-level max frames per session (memory control) ─────
 MAX_FRAMES_PER_SESSION = 1500
@@ -111,8 +132,14 @@ print(f"Synthetic  : {USE_SYNTHETIC}")
 
 try:
     from google.colab import drive
-    drive.mount("/content/drive", force_remount=False)
-    print("Drive mounted.")
+    # Idempotent: if Drive is already mounted (e.g. you ran a verify cell that
+    # called drive.mount), skip re-mounting. Mounting twice raises
+    # "Mountpoint must not already contain files".
+    if os.path.isdir("/content/drive/MyDrive"):
+        print("Drive already mounted — skipping.")
+    else:
+        drive.mount("/content/drive")
+        print("Drive mounted.")
 except ImportError:
     print("Not on Colab — skipping drive mount.")
     USE_SYNTHETIC = True
@@ -121,6 +148,12 @@ except ImportError:
 # ============================================================
 # CELL 4 — Imports
 # ============================================================
+
+# Force Keras 2 (via the tf-keras package) BEFORE TensorFlow is imported
+# anywhere, so tf2onnx.convert.from_keras works. TF 2.17 defaults to Keras 3,
+# which tf2onnx does not reliably convert. Must be set before `import tensorflow`.
+import os
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
 
 import cv2
 import json
@@ -191,59 +224,66 @@ print("MediaPipe models loaded.")
 # CELL 6 — DMD Label Mapping → DrowsyShield 4 Alert Levels
 # ============================================================
 #
-# DMD action types (strings from the JSON "type" field):
+# DMD annotates 7 PARALLEL "levels" (tracks) per frame; within each track the
+# labels are mutually exclusive. The real annotation `type` strings are
+# NAMESPACED, e.g. "driver_actions/safe_drive", "gaze_on_road/looking_road",
+# "hands_using_wheel/both". Only the `driver_actions/*` track describes the
+# distraction *action*, so that is the one we convert into an alert level.
+# Every other track (gaze_on_road/*, hands_using_wheel/*, talking/*,
+# objects_in_scene/*, occlusion/*, hand_on_gear/*) is ignored here.
 #
-#  Distraction actions:
-#   safe_drive              → 0  fully attentive, no distraction
-#   radio                   → 1  brief eyes-down glance
-#   reach_side              → 1  arm reaching, momentary
-#   talking_to_passenger    → 1  head turned, conversing
-#   hair_and_makeup         → 1  grooming — eyes briefly off road
-#   drinking                → 2  sustained eyes-off + one hand off wheel
-#   eating                  → 2  sustained eyes-off + manual
-#   phone_call_right        → 2  phone to ear — cognitive + visual
-#   phone_call_left         → 2  phone to ear — cognitive + visual
-#   texting                 → 3  visual + manual + cognitive simultaneously
-#   read_write              → 3  prolonged eyes-off road
+#  driver_actions leaf → level:
+#   safe_drive                              → 0  attentive
+#   radio / drinking / reach_side /
+#     hair_and_makeup / talking_to_passenger /
+#     change_gear / standstill_or_waiting   → 1  mild
+#   phonecall_right / phonecall_left        → 2  warning (phone to ear)
+#   texting_right / texting_left /
+#     reach_backseat                        → 3  critical (eyes+hands off road)
+#   unclassified                            → skipped (no reliable label)
 #
-#  Drowsiness actions (present if you have the full DMD):
-#   alert                   → 0
-#   yawning                 → 1
-#   drowsy                  → 2
-#   microsleep              → 3
-#   microsleep_eyes_open    → 3
-#
-# Any unknown label defaults to 0 (conservative — do not falsely alarm).
+# Frames with no driver_actions label keep the default 0 (Alert) — conservative.
 
-DMD_LABEL_MAP: Dict[str, int] = {
-    # ── safe / attentive ────────────────────────────────────
-    "safe_drive":               0,
-    "alert":                    0,
-    "attentive":                0,
-    # ── mild (Level 1) ──────────────────────────────────────
-    "radio":                    1,
-    "reach_side":               1,
-    "talking_to_passenger":     1,
-    "hair_and_makeup":          1,
-    "drinking":                 1,
-    "eating":                   1,
-    "yawning":                  1,
-    # ── warning (Level 2) ───────────────────────────────────
-    "phone_call_right":         2,
-    "phone_call_left":          2,
-    "GPS":                      2,
-    "drowsy":                   2,
-    # ── critical (Level 3) ──────────────────────────────────
-    "texting":                  3,
-    "read_write":               3,
-    "microsleep":               3,
-    "microsleep_eyes_open":     3,
+DMD_DRIVER_ACTION_MAP: Dict[str, int] = {
+    # ── safe / attentive (0) ────────────────────────────────
+    "safe_drive":            0,
+    # ── mild (1) ────────────────────────────────────────────
+    "radio":                 1,
+    "drinking":              1,
+    "reach_side":            1,
+    "hair_and_makeup":       1,
+    "talking_to_passenger":  1,
+    "change_gear":           1,
+    "standstill_or_waiting": 1,
+    "stand_still_waiting":   1,   # tolerate naming variant
+    # ── warning (2) ─────────────────────────────────────────
+    "phonecall_right":       2,
+    "phonecall_left":        2,
+    # ── critical (3) ────────────────────────────────────────
+    "texting_right":         3,
+    "texting_left":          3,
+    "reach_backseat":        3,
+    # "unclassified" intentionally absent → returns None → skipped
 }
 
 CLASS_NAMES = ["Alert", "Mild", "Warning", "Critical"]
 
-def map_dmd_label(action_type: str) -> int:
-    return DMD_LABEL_MAP.get(action_type.strip().lower(), 0)
+DRIVER_ACTIONS_PREFIX = "driver_actions/"
+
+
+def map_dmd_label(action_type: str) -> Optional[int]:
+    """
+    Map a DMD OpenLABEL action `type` to a 0-3 alert level.
+
+    Returns None when the action is NOT a driver_actions distraction label
+    (it belongs to another annotation track, or is `unclassified`), so the
+    caller can skip it instead of forcing a wrong level onto those frames.
+    """
+    t = action_type.strip().lower()
+    if not t.startswith(DRIVER_ACTIONS_PREFIX):
+        return None
+    leaf = t[len(DRIVER_ACTIONS_PREFIX):]
+    return DMD_DRIVER_ACTION_MAP.get(leaf, None)
 
 
 # ============================================================
@@ -521,9 +561,15 @@ def parse_openlabel_json(json_path: Path) -> Optional[np.ndarray]:
 
     labels = np.zeros(max_frame + 1, dtype=np.int32)  # default 0 = Alert
 
+    # Only the driver_actions track yields a distraction level. map_dmd_label
+    # returns None for every other track (gaze / hands / talking / objects / …)
+    # and for `unclassified`, so those frames keep the default 0 (Alert).
+    # driver_actions labels are mutually exclusive within the track, so the
+    # intervals we write here never conflict with each other.
     for action in actions.values():
-        action_type = action.get("type", "safe_drive")
-        level       = map_dmd_label(action_type)
+        level = map_dmd_label(action.get("type", ""))
+        if level is None:
+            continue
         for fi in action.get("frame_intervals", []):
             start = fi.get("frame_start", 0)
             end   = fi.get("frame_end",   0)
@@ -535,8 +581,13 @@ def parse_openlabel_json(json_path: Path) -> Optional[np.ndarray]:
 def find_dmd_sessions(dmd_root: str, groups: List[str],
                       camera: str = CAMERA_STREAM) -> List[Tuple[Path, Path, str]]:
     """
-    Walk DMD folder tree and return list of (video_path, ann_json_path, session_id).
-    session_id = "gA_s1" style string for logging.
+    Walk the DMD folder tree and return (video_path, ann_json_path, session_id).
+
+    Real DMD layout is  group / subject / session / files, e.g.
+        gA/1/s1/gA_1_s1_<timestamp>_rgb_face.mp4
+        gA/1/s1/gA_1_s1_<timestamp>_rgb_ann_distraction.json
+    (the videos + annotation JSON live directly inside each session folder).
+    session_id = "gA_1_s1" style string for logging.
     """
     root     = Path(dmd_root)
     sessions = []
@@ -547,52 +598,28 @@ def find_dmd_sessions(dmd_root: str, groups: List[str],
             print(f"  [warn] Group folder not found: {group_dir}")
             continue
 
-        for subj_dir in sorted(group_dir.iterdir()):
-            if not subj_dir.is_dir():
-                continue
+        for subj_dir in sorted(p for p in group_dir.iterdir() if p.is_dir()):
+            for sess_dir in sorted(p for p in subj_dir.iterdir() if p.is_dir()):
+                # Face video for this session (camera defaults to rgb_face)
+                vids = (sorted(sess_dir.glob(f"*{camera}*.mp4")) or
+                        sorted(sess_dir.glob(f"*{camera}*.avi")))
+                if not vids:
+                    print(f"  [warn] No {camera} video in "
+                          f"{group}/{subj_dir.name}/{sess_dir.name}")
+                    continue
+                video = vids[0]
 
-            # Find video
-            cam_dir  = subj_dir / camera
-            video    = None
-            if cam_dir.exists():
-                for ext in ("*.mp4", "*.avi", "*.MP4", "*.AVI"):
-                    vids = list(cam_dir.glob(ext))
-                    if vids:
-                        video = vids[0]
-                        break
+                # Distraction annotation JSON in the same session folder
+                anns = (sorted(sess_dir.glob("*ann_distraction*.json")) or
+                        sorted(sess_dir.glob("*.json")))
+                if not anns:
+                    print(f"  [warn] No annotation JSON in "
+                          f"{group}/{subj_dir.name}/{sess_dir.name} — skipping")
+                    continue
+                ann_json = anns[0]
 
-            if video is None:
-                # Try video directly in subject folder
-                for ext in ("*.mp4", "*.avi"):
-                    vids = list(subj_dir.glob(f"*{camera}*" + ext[1:]))
-                    if vids:
-                        video = vids[0]
-                        break
-
-            if video is None:
-                print(f"  [warn] No video for {group}/{subj_dir.name}/{camera}")
-                continue
-
-            # Find annotation JSON
-            ann_dir = subj_dir / "ann"
-            ann_json = None
-            if ann_dir.exists():
-                jsons = list(ann_dir.glob("*.json"))
-                if jsons:
-                    ann_json = jsons[0]
-
-            # Also try annotation in subject folder directly
-            if ann_json is None:
-                jsons = list(subj_dir.glob("*.json"))
-                if jsons:
-                    ann_json = jsons[0]
-
-            if ann_json is None:
-                print(f"  [warn] No annotation JSON for {group}/{subj_dir.name} — skipping")
-                continue
-
-            session_id = f"{group}_{subj_dir.name}"
-            sessions.append((video, ann_json, session_id))
+                session_id = f"{group}_{subj_dir.name}_{sess_dir.name}"
+                sessions.append((video, ann_json, session_id))
 
     print(f"Found {len(sessions)} annotated sessions in groups: {groups}")
     return sessions
@@ -687,6 +714,38 @@ def build_dataset(sessions: List[Tuple[Path, Path, str]]) -> List[Sample]:
     return samples
 
 
+def build_or_load_dataset(sessions: List[Tuple[Path, Path, str]], tag: str) -> List[Sample]:
+    """
+    Cache extracted features to Drive so re-runs skip the slow (~25-40 min)
+    MediaPipe extraction. The cache key includes the exact sessions found plus
+    FRAME_SKIP / MAX_FRAMES_PER_SESSION, so it auto-invalidates when you add a
+    subject or change sampling — but a plain re-run (e.g. to fix ONNX export or
+    retrain) loads features in seconds.
+    Delete the .pkl files in OUTPUT_DIR to force a fresh extraction.
+    """
+    import hashlib
+    sig  = "|".join(sorted(sid for _, _, sid in sessions))
+    key  = hashlib.md5(f"{sig}|skip{FRAME_SKIP}|max{MAX_FRAMES_PER_SESSION}".encode()).hexdigest()[:8]
+    path = os.path.join(OUTPUT_DIR, f"features_{tag}_{key}.pkl")
+
+    if os.path.exists(path):
+        print(f"  [cache] loading {tag} features → {path}")
+        with open(path, "rb") as f:
+            samples = pickle.load(f)
+        counts = {c: sum(1 for s in samples if s.label == c) for c in range(4)}
+        print(f"  → {len(samples)} cached samples | distribution: {counts}")
+        return samples
+
+    samples = build_dataset(sessions)
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(samples, f)
+        print(f"  [cache] saved {tag} features → {path}")
+    except Exception as e:
+        print(f"  [cache] could not save {tag} cache ({e}) — continuing")
+    return samples
+
+
 def build_synthetic(n: int = 200) -> List[Sample]:
     frames      = make_synthetic_dataset(n)
     perclos_buf = PerclosBuffer()
@@ -718,12 +777,48 @@ else:
     val_sessions   = find_dmd_sessions(DMD_ROOT, VAL_GROUPS)
     test_sessions  = find_dmd_sessions(DMD_ROOT, TEST_GROUPS)
 
-    print("\nExtracting TRAIN …")
-    train_samples = build_dataset(train_sessions)
-    print("Extracting VAL …")
-    val_samples   = build_dataset(val_sessions)
-    print("Extracting TEST …")
-    test_samples  = build_dataset(test_sessions)
+    # ── Sanity check (fail fast BEFORE the ~1h feature extraction) ──────
+    # Prints how many sessions were found per split and the per-level frame
+    # distribution from the annotations. If a split shows 0 sessions your
+    # DMD_ROOT / group names are wrong; if labels are all one class your data
+    # or mapping is off. Catch it here — not after an hour of MediaPipe.
+    def _label_dist(sessions):
+        counts = {0: 0, 1: 0, 2: 0, 3: 0}
+        for _video, ann, _sid in sessions:
+            labels = parse_openlabel_json(Path(ann))
+            if labels is None:
+                continue
+            for lvl in range(4):
+                counts[lvl] += int((labels == lvl).sum())
+        return counts
+
+    print("\n" + "=" * 60)
+    print("SANITY CHECK — sessions found + label distribution")
+    print("=" * 60)
+    _bad = False
+    for _name, _grp, _sess in [("TRAIN", TRAIN_GROUPS, train_sessions),
+                               ("VAL",   VAL_GROUPS,   val_sessions),
+                               ("TEST",  TEST_GROUPS,  test_sessions)]:
+        dist  = _label_dist(_sess)
+        total = sum(dist.values())
+        pct   = {k: (100 * v / total if total else 0) for k, v in dist.items()}
+        print(f"  {_name:5s} groups={_grp} sessions={len(_sess):2d}  "
+              f"frames={total:6d}  "
+              f"A:{pct[0]:4.1f}% M:{pct[1]:4.1f}% W:{pct[2]:4.1f}% C:{pct[3]:4.1f}%")
+        if len(_sess) == 0:
+            print(f"    [ERROR] No sessions for {_name} — check DMD_ROOT / group names.")
+            _bad = True
+    if _bad:
+        raise RuntimeError("Sanity check failed — fix DMD_ROOT / groups in CELL 2 "
+                           "before continuing (no data was extracted).")
+    print("Sanity check passed — proceeding to feature extraction.\n")
+
+    print("TRAIN features …")
+    train_samples = build_or_load_dataset(train_sessions, "train")
+    print("VAL features …")
+    val_samples   = build_or_load_dataset(val_sessions, "val")
+    print("TEST features …")
+    test_samples  = build_or_load_dataset(test_sessions, "test")
 
 print(f"\nReady — Train:{len(train_samples)}  Val:{len(val_samples)}  Test:{len(test_samples)}")
 
@@ -1002,16 +1097,18 @@ lr_meta.fit(X_tr_sc, y_tr_m)
 print(f"System C (LogReg) — Test Acc: {accuracy_score(y_te_m, lr_meta.predict(X_te_sc)):.1%}")
 
 # XGBoost (primary)
+# XGBoost 2.0+ moved `early_stopping_rounds` from .fit() into the constructor
+# and removed `use_label_encoder`. This targets xgboost 3.x (Colab default).
 xgb_meta = xgb.XGBClassifier(
     objective="multi:softprob", num_class=4,
     max_depth=4, n_estimators=200, learning_rate=0.05,
     subsample=0.8, colsample_bytree=0.8,
-    use_label_encoder=False, eval_metric="mlogloss",
+    eval_metric="mlogloss", early_stopping_rounds=15,
     random_state=42, n_jobs=-1,
 )
 xgb_meta.fit(X_tr_sc, y_tr_m,
              eval_set=[(X_va_sc, y_va_m)],
-             early_stopping_rounds=15, verbose=False)
+             verbose=False)
 
 y_pred_c = xgb_meta.predict(X_te_sc)
 acc_c    = accuracy_score(y_te_m, y_pred_c)
@@ -1091,6 +1188,61 @@ plt.show()
 
 
 # ============================================================
+# CELL 17b — ROC Curves + AUC (one-vs-rest, Systems B & C)
+# ============================================================
+# ROC needs class probabilities, so it is drawn for the two systems that
+# output them: System B (CNN softmax) and System C (XGBoost predict_proba).
+# System A emits a single composite score, not per-class probabilities, so it
+# has no multi-class ROC (its behaviour is captured by the confusion matrix).
+
+from sklearn.preprocessing import label_binarize
+from sklearn.metrics import roc_curve, auc
+
+y_bin = label_binarize(y_te_m, classes=[0, 1, 2, 3])
+
+# System B probabilities — run the ONNX model over the test face crops
+cnn_test_probs = sess.run(None, {"input": np.stack([
+    (s.face_crop.astype(np.float32) / 255.0
+     if s.face_crop is not None
+     else np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.float32))
+    for s in test_samples
+])})[0]
+
+# System C probabilities — XGBoost meta-classifier
+xgb_test_probs = xgb_meta.predict_proba(X_te_sc)
+
+
+def _plot_roc(ax, y_bin_, probs, title) -> Dict[str, float]:
+    aucs: Dict[str, float] = {}
+    for i, cname in enumerate(CLASS_NAMES):
+        if y_bin_[:, i].sum() == 0:      # class absent from the test split
+            continue
+        fpr, tpr, _ = roc_curve(y_bin_[:, i], probs[:, i])
+        a = auc(fpr, tpr)
+        aucs[cname] = float(a)
+        ax.plot(fpr, tpr, label=f"{cname} (AUC={a:.2f})")
+    # macro-average AUC across the classes that were present
+    if aucs:
+        aucs["macro"] = float(np.mean(list(aucs.values())))
+    ax.plot([0, 1], [0, 1], "k--", alpha=0.4)
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1.02)
+    ax.set_xlabel("False Positive Rate"); ax.set_ylabel("True Positive Rate")
+    ax.set_title(title); ax.legend(loc="lower right", fontsize=8)
+    return aucs
+
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+auc_b = _plot_roc(axes[0], y_bin, cnn_test_probs, "System B — MobileNetV2 ROC (OvR)")
+auc_c = _plot_roc(axes[1], y_bin, xgb_test_probs, "System C — Ensemble ROC (OvR)")
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, "roc_curves.png"), dpi=150)
+plt.show()
+
+print("Per-class AUC — System B:", {k: round(v, 3) for k, v in auc_b.items()})
+print("Per-class AUC — System C:", {k: round(v, 3) for k, v in auc_c.items()})
+
+
+# ============================================================
 # CELL 18 — Save All Results to JSON
 # ============================================================
 
@@ -1104,6 +1256,10 @@ final = {
         "C": {k: round(v*100,2) for k,v in m_c.items()},
     },
     "onnx_latency_ms": {"p50": round(p50,1), "p95": round(p95,1)},
+    "roc_auc": {
+        "B": {k: round(v, 3) for k, v in auc_b.items()},
+        "C": {k: round(v, 3) for k, v in auc_c.items()},
+    },
     "train_groups": TRAIN_GROUPS,
     "val_groups":   VAL_GROUPS,
     "test_groups":  TEST_GROUPS,
@@ -1126,8 +1282,9 @@ try:
     files.download(RESULTS_PATH)
     print("Downloads triggered.")
     print("\nNext steps:")
-    print("  cp drowsy_mobilenetv2.onnx  finalyearproject/backend/models/")
-    print("  cp meta_classifier.pkl      finalyearproject/backend/models/")
+    print("  cp drowsy_mobilenetv2.onnx  finalyearproject/ai/models/")
+    print("  cp meta_classifier.pkl      finalyearproject/ai/models/")
+    print("  cp ablation_results.json    finalyearproject/frontend/public/")
 except ImportError:
     print(f"Copy manually from: {OUTPUT_DIR}")
 
