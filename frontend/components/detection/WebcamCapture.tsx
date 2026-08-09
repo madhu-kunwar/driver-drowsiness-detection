@@ -60,6 +60,19 @@ export function WebcamCapture() {
 
       if (!video || !canvas || video.readyState < 2) return;
 
+      // Dynamically match canvas dimensions to the actual camera resolution
+      // This prevents aspect ratio squishing if the camera is 16:9 instead of 4:3
+      if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+      }
+      
+      const overlayCanvas = overlayCanvasRef.current;
+      if (overlayCanvas && (overlayCanvas.width !== video.videoWidth || overlayCanvas.height !== video.videoHeight)) {
+        overlayCanvas.width = video.videoWidth;
+        overlayCanvas.height = video.videoHeight;
+      }
+
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
