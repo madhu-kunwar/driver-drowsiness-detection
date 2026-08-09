@@ -61,12 +61,26 @@ pip(
 )
 
 print("All packages installed.")
-print("\n" + "!" * 64)
-print("!  IMPORTANT: this cell downgraded TensorFlow (2.18 → 2.17) and")
-print("!  protobuf. You MUST restart the runtime now for it to take effect:")
-print("!     Runtime → Restart session")
-print("!  Then run the script again — installs are cached, so it's fast.")
-print("!" * 64)
+
+# The install above DOWNGRADED TensorFlow / numpy / protobuf. Downgraded C
+# extensions only load cleanly in a FRESH process — otherwise you get
+# "cannot import name 'runtime_version'" (protobuf) or "numpy.dtype size
+# changed" (numpy) when the next cell imports mediapipe/TF. So force a
+# ONE-TIME automatic kernel restart. A flag file prevents a restart loop:
+# after the auto-restart this block is skipped and the script runs straight
+# through — you just re-run the script once.
+import os as _os
+_DEPS_FLAG = "/content/.drowsyshield_deps_ready"
+if not _os.path.exists(_DEPS_FLAG):
+    open(_DEPS_FLAG, "w").close()
+    print("\n" + ">" * 64)
+    print(">>> Dependencies installed. Auto-restarting the runtime so they load")
+    print(">>> cleanly. THIS IS EXPECTED — not a crash. When it reconnects,")
+    print(">>> just run this script again; it will continue past this point.")
+    print(">" * 64)
+    _os.kill(_os.getpid(), 9)   # force Colab to restart the kernel
+else:
+    print("Dependencies already active in a fresh runtime — continuing.")
 
 
 # ============================================================
