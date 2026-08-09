@@ -23,6 +23,9 @@ from typing import Optional
 import cv2
 import mediapipe as mp
 import numpy as np
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
+from mediapipe.tasks.python.vision import RunningMode
 
 from .calibration import Calibration
 from .preprocessing import decode_jpeg, preprocess
@@ -38,32 +41,63 @@ from .signals.head_pose import compute_head_pose, normalise_pose
 from .signals.mar import OUTER_LIP, YawnDetector, compute_mar, normalise_mar
 from .signals.posture import compute_posture, measure_posture, pose_reliable
 
-# ── MediaPipe singletons (shared across all sessions) ────────────────
-_mp_face_mesh   = mp.solutions.face_mesh
-_mp_face_detect = mp.solutions.face_detection
-_mp_pose        = mp.solutions.pose
+# ── Download MediaPipe model bundles if not cached ───────────────────
+import urllib.request, os, ssl
 
-# Detect up to 2 faces so a passenger can't silently steal tracking; we then
-# lock onto the LARGEST face (the driver, closest to the camera). When only one
-# face is present this costs the same as max_num_faces=1 — the mesh only runs
-# per detected face.
-_face_mesh = _mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=2,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
+_CACHE_DIR = Path(__file__).parent.parent / ".mp_models"
+_CACHE_DIR.mkdir(exist_ok=True)
+
+def _download(url: str, dest: Path):
+    if not dest.exists():
+        print(f"[pipeline] Downloading {dest.name} …")
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(url, context=ctx) as r, open(dest, "wb") as f:
+            f.write(r.read())
+
+_FACE_BUNDLE = _CACHE_DIR / "face_landmarker.task"
+_POSE_BUNDLE = _CACHE_DIR / "pose_landmarker_lite.task"
+
+_download(
+    "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+    _FACE_BUNDLE,
 )
-_face_detector = _mp_face_detect.FaceDetection(
-    model_selection=0,
-    min_detection_confidence=0.5,
+_download(
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+    _POSE_BUNDLE,
 )
-_pose_detector = _mp_pose.Pose(
-    static_image_mode=False,
-    model_complexity=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
+
+# ── MediaPipe singletons (shared across all sessions) ────────────────
+_face_opts = mp_python.BaseOptions(model_asset_path=str(_FACE_BUNDLE))
+_face_landmarker = mp_vision.FaceLandmarker.create_from_options(
+    mp_vision.FaceLandmarkerOptions(
+        base_options=_face_opts,
+        running_mode=RunningMode.IMAGE,
+        num_faces=2,
+        min_face_detection_confidence=0.5,
+        min_face_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
 )
+
+_pose_opts = mp_python.BaseOptions(model_asset_path=str(_POSE_BUNDLE))
+_pose_landmarker = mp_vision.PoseLandmarker.create_from_options(
+    mp_vision.PoseLandmarkerOptions(
+        base_options=_pose_opts,
+        running_mode=RunningMode.IMAGE,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+)
+
+def _mp_image(rgb: np.ndarray) -> mp.Image:
+    """Convert numpy RGB array to mediapipe Image."""
+    return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
 # ── Model paths ──────────────────────────────────────────────────────
 _MODELS_DIR = Path(__file__).parent.parent / "models"
@@ -196,20 +230,18 @@ def _largest_face(multi_face_landmarks):
 def _extract_face_crop(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
     h, w = frame_bgr.shape[:2]
     rgb  = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    res  = _face_detector.process(rgb)
-    if not res.detections:
+    res  = _face_landmarker.detect(_mp_image(rgb))
+    if not res.face_landmarks:
         return None
-    best = max(
-        res.detections,
-        key=lambda d: d.location_data.relative_bounding_box.width
-                    * d.location_data.relative_bounding_box.height,
-    )
+    
+    face_lms = res.face_landmarks[0]
+    xs = [lm.x for lm in face_lms]
+    ys = [lm.y for lm in face_lms]
     pad = 0.15
-    bb  = best.location_data.relative_bounding_box
-    x1  = max(0, int((bb.xmin - pad) * w))
-    y1  = max(0, int((bb.ymin - pad) * h))
-    x2  = min(w, int((bb.xmin + bb.width  + pad) * w))
-    y2  = min(h, int((bb.ymin + bb.height + pad) * h))
+    x1  = max(0, int((min(xs) - pad) * w))
+    y1  = max(0, int((min(ys) - pad) * h))
+    x2  = min(w, int((max(xs) + pad) * w))
+    y2  = min(h, int((max(ys) + pad) * h))
     crop = frame_bgr[y1:y2, x1:x2]
     if crop.size == 0:
         return None
@@ -255,12 +287,15 @@ class DetectionPipeline:
         blen = self.calibration.baseline_lean
         btlt = self.calibration.baseline_tilt
 
-        # ── FaceMesh ─────────────────────────────────────────────
-        fm = _face_mesh.process(rgb)
-        if not fm.multi_face_landmarks:
+        # ── FaceLandmarker ───────────────────────────────────────
+        fm = _face_landmarker.detect(_mp_image(rgb))
+        if not fm.face_landmarks:
             return self._no_face_result(ts, low_light)
 
-        lm = _largest_face(fm.multi_face_landmarks).landmark
+        def _face_area(lms):
+            xs = [p.x for p in lms]; ys = [p.y for p in lms]
+            return (max(xs) - min(xs)) * (max(ys) - min(ys))
+        lm = max(fm.face_landmarks, key=_face_area)
 
         # ── Signals ──────────────────────────────────────────────
         ear   = compute_ear(lm)
@@ -278,16 +313,22 @@ class DetectionPipeline:
         yawn_detected = self.yawn.update(mar)
 
         # ── Posture ───────────────────────────────────────────────
-        pr = _pose_detector.process(rgb)
+        pr = _pose_landmarker.detect(_mp_image(rgb))
         posture_s = 0.0
         posture_landmarks = None
-        if pr.pose_landmarks and pose_reliable(pr.pose_landmarks):
-            posture_s = compute_posture(pr.pose_landmarks, blen, btlt)
-            pl = pr.pose_landmarks.landmark
-            posture_landmarks = {
-                "shoulders": [{"x": pl[11].x, "y": pl[11].y}, {"x": pl[12].x, "y": pl[12].y}],
-                "ears":      [{"x": pl[7].x,  "y": pl[7].y},  {"x": pl[8].x,  "y": pl[8].y}],
-            }
+        if pr.pose_landmarks and len(pr.pose_landmarks) > 0:
+            pl_list = pr.pose_landmarks[0]
+            class _PoseLms:
+                def __init__(self, lms): self.landmark = lms
+            pl_wrapped = _PoseLms(pl_list)
+            
+            if pose_reliable(pl_wrapped):
+                posture_s = compute_posture(pl_wrapped, blen, btlt)
+                pl = pl_list
+                posture_landmarks = {
+                    "shoulders": [{"x": pl[11].x, "y": pl[11].y}, {"x": pl[12].x, "y": pl[12].y}],
+                    "ears":      [{"x": pl[7].x,  "y": pl[7].y},  {"x": pl[8].x,  "y": pl[8].y}],
+                }
 
         landmarks = {
             "leftEye":  [{"x": lm[i].x, "y": lm[i].y} for i in LEFT_EYE],
@@ -367,20 +408,30 @@ class DetectionPipeline:
     # ── Calibration helpers ──────────────────────────────────────────
 
     def _try_calibration_frame(self, rgb: np.ndarray, h: int, w: int):
-        fm = _face_mesh.process(rgb)
-        if not fm.multi_face_landmarks:
+        fm = _face_landmarker.detect(_mp_image(rgb))
+        if not fm.face_landmarks:
             return
-        lm = _largest_face(fm.multi_face_landmarks).landmark
+            
+        def _face_area(lms):
+            xs = [p.x for p in lms]; ys = [p.y for p in lms]
+            return (max(xs) - min(xs)) * (max(ys) - min(ys))
+        lm = max(fm.face_landmarks, key=_face_area)
         ear = compute_ear(lm)
 
-        pr = _pose_detector.process(rgb)
-        if pr.pose_landmarks and pose_reliable(pr.pose_landmarks):
-            lean, tilt = measure_posture(pr.pose_landmarks)
-            self.calibration.add_frame(ear, lean, tilt)
-        else:
-            # Face calibrated even when the body isn't in frame; posture
-            # baseline simply isn't recorded from this frame.
-            self.calibration.add_frame(ear)
+        pr = _pose_landmarker.detect(_mp_image(rgb))
+        if pr.pose_landmarks and len(pr.pose_landmarks) > 0:
+            pl_list = pr.pose_landmarks[0]
+            class _PoseLms:
+                def __init__(self, lms): self.landmark = lms
+            pl_wrapped = _PoseLms(pl_list)
+            
+            if pose_reliable(pl_wrapped):
+                lean, tilt = measure_posture(pl_wrapped)
+                self.calibration.add_frame(ear, lean, tilt)
+                return
+                
+        # Face calibrated even when the body isn't in frame
+        self.calibration.add_frame(ear)
 
     # ── Hysteresis ────────────────────────────────────────────────────
 
