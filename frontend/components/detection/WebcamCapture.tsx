@@ -42,21 +42,9 @@ export function WebcamCapture() {
       return;
     }
 
-    let tick = 0;
     frameLoop.current = setInterval(() => {
-      tick += 1;
       const video = webcamRef.current?.video;
       const canvas = canvasRef.current;
-
-      // TEMP DEBUG — remove after diagnosing missing frames, logs ~1x/sec
-      if (tick % 30 === 0) {
-        console.error("[frameLoop]", {
-          hasVideo: !!video,
-          readyState: video?.readyState,
-          videoWidth: video?.videoWidth,
-          hasCanvas: !!canvas,
-        });
-      }
 
       if (!video || !canvas || video.readyState < 2) return;
 
@@ -167,7 +155,7 @@ export function WebcamCapture() {
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-caption font-medium text-white"
           style={{
             background:
-              wsStatus === "connected" ? "var(--ds-emerald)" :
+              wsStatus === "connected" ? "#3B82F6" :
               wsStatus === "demo"      ? "var(--ds-alert-1)" :
               wsStatus === "error"     ? "var(--ds-alert-3)" :
               "var(--ds-base-raised)",
