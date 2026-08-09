@@ -34,7 +34,8 @@ We appreciate your patience and your feedback until now, and hope you understand
 
 ## Introduction
 
-The [Driver Monitoring Dataset (DMD)](https://dmd.vicomtech.org/) was created to address the shortage of data for training and testing driver monitoring systems based on computer vision. This dataset includes data for tasks such as distraction detection, drowsiness detection, and gaze estimation. It enables both temporal and discrete multi-sensor analysis, as it is provided in video format with information from three cameras, each capturing RGB, IR, and depth data.
+
+The [Driver Monitoring Dataset (DMD)](https://dmd.vicomtech.org/) was created to address the shortage of data for training and testing driver monitoring systems based on computer vision system. This dataset includes data for tasks such as distraction detection, drowsiness detection, and gaze estimation. It enables both temporal and discrete multi-sensor analysis, as it is provided in video format with information from three cameras, each capturing RGB, IR, and depth data.
 
 Processing large volumes of information, particularly annotating, is time-consuming. As we progressed with the data, we have continued to publish additional material. All the videos have been processed, but some work is still to be done around annotations. Right now, the focus is on temporal annotations. We are still working to offer more.
 
