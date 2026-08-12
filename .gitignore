@@ -8,3 +8,7 @@ __pycache__/
 dmd/
 dataset/
 *.tar.gz
+
+# Training artifacts not needed by the runtime (keep .onnx + meta_classifier.pkl)
+ai/models/*.h5
+ai/models/features_*.pkl
